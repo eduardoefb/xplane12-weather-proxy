@@ -260,7 +260,7 @@ The **Setup help** button in the GUI shows OS-specific hosts and certificate ste
 | Hosts redirect fails (Windows) | Edit hosts as Admin; run `ipconfig /flushdns` |
 | eccodes / DLL error (Windows) | Install [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist); run `python -m eccodes selfcheck`; or try conda (README Option B) |
 
-**Test the local manifest** (app must be running, hosts redirect active):
+**Test the local manifest** (app must be running **as Administrator** on port 443, hosts redirect active, mkcert installed):
 
 Linux:
 
@@ -268,20 +268,36 @@ Linux:
 curl -s "https://weatherservice.x-plane.com/api/v1/manifest/debug/$(date -u +%Y-%m-%dT%H:%M:%SZ)" | python3 -m json.tool | head
 ```
 
-Windows (PowerShell):
+Windows (PowerShell — recommended):
 
 ```powershell
 $ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
-curl.exe -s "https://weatherservice.x-plane.com/api/v1/manifest/debug/$ts" | python -m json.tool
+$url = "https://weatherservice.x-plane.com/api/v1/manifest/debug/$ts"
+Invoke-RestMethod -Uri $url | ConvertTo-Json -Depth 5
 ```
 
-Windows (Command Prompt — use PowerShell above if this fails):
+You should see JSON with `products` → `metar`, `nomads`, etc. If you get an error instead:
+
+```powershell
+# 1) Hosts redirect (should show 127.0.0.1)
+ping weatherservice.x-plane.com
+
+# 2) Is anything listening on 443?
+Test-NetConnection -ComputerName 127.0.0.1 -Port 443
+
+# 3) Verbose HTTPS (shows TLS / connection errors)
+curl.exe -v "https://weatherservice.x-plane.com/api/v1/manifest/debug/$ts"
+```
+
+`python -m json.tool` with `Expecting value: line 1 column 1` means **curl returned empty or non-JSON** — usually the app is not running, port 443 is blocked, or HTTPS failed. Use `Invoke-RestMethod` above instead of piping `curl.exe` to Python.
+
+Windows (Command Prompt only — do **not** paste this into PowerShell):
 
 ```cmd
-for /f %i in ('powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString(''yyyy-MM-ddTHH:mm:ssZ'')"') do curl.exe -s "https://weatherservice.x-plane.com/api/v1/manifest/debug/%i"
+powershell -NoProfile -Command "$ts=(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); Invoke-RestMethod ('https://weatherservice.x-plane.com/api/v1/manifest/debug/'+$ts) | ConvertTo-Json -Depth 5"
 ```
 
-A successful response is JSON with `products.metar`, `products.nomads`, and related sections. SSL errors usually mean mkcert is not installed or `.weather_proxy_certs` needs to be regenerated.
+SSL errors usually mean mkcert is not installed (`mkcert -install` as Administrator) or `.weather_proxy_certs` was created before mkcert and must be deleted.
 
 ## Reverting to Laminar’s servers
 
