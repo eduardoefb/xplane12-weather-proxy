@@ -115,24 +115,7 @@ The `eccodes` package on PyPI includes the native library for Windows (v2.37+). 
 
 If GRIB slicing fails with a DLL error, install the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) (x64).
 
-#### 2. Clone the project and install packages
-
-```cmd
-git clone https://github.com/eduardoefb/xplane12-weather-proxy.git
-cd xplane12-weather-proxy
-
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-Verify eccodes:
-
-```cmd
-python -m eccodes selfcheck
-```
-
-#### 3. Install mkcert (trusted HTTPS)
+#### 2. Install mkcert (trusted HTTPS)
 
 X-Plane validates HTTPS like a browser. **Without mkcert**, the app still starts and creates a **self-signed** certificate (via the `cryptography` package), but X-Plane will usually **reject** the weather manifest. Install mkcert so the local CA is trusted.
 
@@ -158,13 +141,6 @@ X-Plane validates HTTPS like a browser. **Without mkcert**, the app still starts
    mkcert -install
    ```
 
-5. If you already ran the app without mkcert, delete the old certs and restart:
-
-   ```cmd
-   rmdir /s /q .weather_proxy_certs
-   python main.py
-   ```
-
 **Option 2 — Package managers** (only if already installed)
 
 ```cmd
@@ -177,6 +153,29 @@ or `scoop install mkcert`, then `mkcert -install` as Administrator.
 
 ```cmd
 C:\Tools\mkcert.exe -install
+```
+
+#### 3. Clone the project and install packages
+
+```cmd
+git clone https://github.com/eduardoefb/xplane12-weather-proxy.git
+cd xplane12-weather-proxy
+
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+Verify eccodes:
+
+```cmd
+python -m eccodes selfcheck
+```
+
+If you already ran the app once **without** mkcert, delete the old self-signed certs before starting again:
+
+```cmd
+rmdir /s /q .weather_proxy_certs
 ```
 
 #### 4. Redirect weather hostname (hosts file)
@@ -225,7 +224,7 @@ conda install -c conda-forge eccodes cfgrib -y
 pip install -r requirements.txt
 ```
 
-Then follow **Option A** steps 3–5 (mkcert, hosts, run as Administrator). Use `conda activate xplane-weather` instead of activating `.venv`.
+Then follow **Option A** steps 2, 4, and 5 (mkcert, hosts, run as Administrator). Use `conda activate xplane-weather` instead of activating `.venv`.
 
 ---
 
@@ -261,11 +260,28 @@ The **Setup help** button in the GUI shows OS-specific hosts and certificate ste
 | Hosts redirect fails (Windows) | Edit hosts as Admin; run `ipconfig /flushdns` |
 | eccodes / DLL error (Windows) | Install [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist); run `python -m eccodes selfcheck`; or try conda (README Option B) |
 
-**Test the local manifest:**
+**Test the local manifest** (app must be running, hosts redirect active):
+
+Linux:
 
 ```bash
 curl -s "https://weatherservice.x-plane.com/api/v1/manifest/debug/$(date -u +%Y-%m-%dT%H:%M:%SZ)" | python3 -m json.tool | head
 ```
+
+Windows (PowerShell):
+
+```powershell
+$ts = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+curl.exe -s "https://weatherservice.x-plane.com/api/v1/manifest/debug/$ts" | python -m json.tool
+```
+
+Windows (Command Prompt — use PowerShell above if this fails):
+
+```cmd
+for /f %i in ('powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString(''yyyy-MM-ddTHH:mm:ssZ'')"') do curl.exe -s "https://weatherservice.x-plane.com/api/v1/manifest/debug/%i"
+```
+
+A successful response is JSON with `products.metar`, `products.nomads`, and related sections. SSL errors usually mean mkcert is not installed or `.weather_proxy_certs` needs to be regenerated.
 
 ## Reverting to Laminar’s servers
 

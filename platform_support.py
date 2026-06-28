@@ -92,9 +92,16 @@ def privileged_port_hint(python_executable: str) -> str:
 def mkcert_install_hint() -> str:
     if is_windows():
         return (
-            "Install mkcert for trusted HTTPS (recommended):\n"
-            "  choco install mkcert   (or scoop install mkcert)\n"
-            "  mkcert -install"
+            "Install mkcert for trusted HTTPS (X-Plane usually rejects self-signed certs):\n"
+            "  Manual (no Chocolatey/Scoop):\n"
+            "    1. Download mkcert from https://github.com/FiloSottile/mkcert/releases\n"
+            "       (e.g. mkcert-v*-windows-amd64.exe)\n"
+            "    2. Rename to mkcert.exe and put it in a folder on PATH\n"
+            "       (e.g. C:\\Tools\\mkcert.exe and add C:\\Tools to PATH)\n"
+            "    3. Open Command Prompt as Administrator:\n"
+            "       mkcert -install\n"
+            "  Or: choco install mkcert  /  scoop install mkcert\n"
+            "  Then delete .weather_proxy_certs and restart this app."
         )
     return (
         "Install mkcert for trusted HTTPS (recommended):\n"
