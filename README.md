@@ -134,13 +134,49 @@ python -m eccodes selfcheck
 
 #### 3. Install mkcert (trusted HTTPS)
 
-With [Chocolatey](https://chocolatey.org/): `choco install mkcert`  
-With [Scoop](https://scoop.sh/): `scoop install mkcert`
+X-Plane validates HTTPS like a browser. **Without mkcert**, the app still starts and creates a **self-signed** certificate (via the `cryptography` package), but X-Plane will usually **reject** the weather manifest. Install mkcert so the local CA is trusted.
 
-Then run **Command Prompt as Administrator** once:
+**Option 1 — Manual download (no extra tools)**
+
+1. Download the Windows binary from:  
+   https://github.com/FiloSottile/mkcert/releases  
+   (file name like `mkcert-v1.4.4-windows-amd64.exe`)
+2. Rename it to `mkcert.exe` and place it somewhere on your **PATH**, for example:
+   - Create `C:\Tools\`, copy `mkcert.exe` there
+   - **Settings → System → About → Advanced system settings → Environment Variables**
+   - Edit **Path** under User variables → **New** → `C:\Tools`
+   - Close and open a **new** Command Prompt
+3. Verify:
+
+   ```cmd
+   mkcert -version
+   ```
+
+4. Open **Command Prompt as Administrator** (required once):
+
+   ```cmd
+   mkcert -install
+   ```
+
+5. If you already ran the app without mkcert, delete the old certs and restart:
+
+   ```cmd
+   rmdir /s /q .weather_proxy_certs
+   python main.py
+   ```
+
+**Option 2 — Package managers** (only if already installed)
 
 ```cmd
-mkcert -install
+choco install mkcert
+```
+
+or `scoop install mkcert`, then `mkcert -install` as Administrator.
+
+**If `mkcert` is still not recognized:** you are not in a new terminal after editing PATH, or `mkcert.exe` is not in a PATH folder. Run it with the full path instead:
+
+```cmd
+C:\Tools\mkcert.exe -install
 ```
 
 #### 4. Redirect weather hostname (hosts file)
@@ -218,7 +254,8 @@ The **Setup help** button in the GUI shows OS-specific hosts and certificate ste
 |---------|----------------|
 | Weather updated in app but not in sim | Press **Refresh** in X-Plane; sim reads `Output/real weather/`, not `.weather_data/` |
 | “Not updated yet” / 1970 dates | Proxy not running or manifest rejected — check `Log.txt` for `WXR` lines |
-| SSL errors | Run `mkcert -install`, restart app |
+| SSL errors | Run `mkcert -install` as Administrator, delete `.weather_proxy_certs`, restart app — see [mkcert manual install](https://github.com/FiloSottile/mkcert/releases) on Windows |
+| `mkcert` not recognized (Windows) | Download `mkcert-*-windows-amd64.exe`, rename to `mkcert.exe`, add its folder to PATH, open a **new** terminal — or run with full path |
 | Missing `calt` / `ccov` | Copy from a prior Laminar download or see [grib-download.md](docs/grib-download.md) |
 | Port 443 in use | **Linux:** `setcap` or sudo — **Windows:** run as Administrator |
 | Hosts redirect fails (Windows) | Edit hosts as Admin; run `ipconfig /flushdns` |
