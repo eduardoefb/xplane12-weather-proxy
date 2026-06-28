@@ -97,26 +97,77 @@ Set your X-Plane root in the UI (default `~/X-Plane_12`), wait for the first dow
 
 ## Quick start — Windows
 
-1. Install [Python 3.11+](https://www.python.org/downloads/) (check **Add to PATH**).
-2. Install **eccodes** — easiest via [conda-forge](https://conda-forge.org/):  
-   `conda install -c conda-forge eccodes cfgrib`
-3. Install **mkcert**: `choco install mkcert` or `scoop install mkcert`, then `mkcert -install`.
-4. Clone the repo and install Python packages:
+On Windows, **eccodes** (required for GRIB slicing) is easiest to install with **Miniconda**. Conda is not pre-installed on Windows — follow the steps below.
+
+### 1. Install Miniconda
+
+1. Download **Miniconda** for Windows:  
+   https://docs.anaconda.com/miniconda/miniconda-install/
+2. Run the installer. Recommended options:
+   - Install for **Just Me**
+   - Check **“Add Miniconda3 to my PATH environment variable”** (or use **“Anaconda Prompt”** later if you skip this)
+   - Finish the install
+3. Open a **new** **Command Prompt** or **PowerShell** and verify:
 
    ```cmd
-   git clone https://github.com/eduardoefb/xplane12-weather-proxy.git
-   cd xplane12-weather-proxy
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -r requirements.txt
+   conda --version
    ```
 
-5. Edit `C:\Windows\System32\drivers\etc\hosts` **as Administrator** — add:  
-   `127.0.0.1 weatherservice.x-plane.com`
-6. Run **as Administrator** (port 443):  
-   `python main.py`
+### 2. Create environment and install eccodes
+
+```cmd
+conda create -n xplane-weather python=3.11 -y
+conda activate xplane-weather
+conda install -c conda-forge eccodes cfgrib -y
+```
+
+### 3. Install mkcert (trusted HTTPS)
+
+With [Chocolatey](https://chocolatey.org/): `choco install mkcert`  
+With [Scoop](https://scoop.sh/): `scoop install mkcert`
+
+Then run **Command Prompt as Administrator** once:
+
+```cmd
+mkcert -install
+```
+
+### 4. Clone the project and install Python packages
+
+```cmd
+git clone https://github.com/eduardoefb/xplane12-weather-proxy.git
+cd xplane12-weather-proxy
+conda activate xplane-weather
+pip install -r requirements.txt
+```
+
+### 5. Redirect weather hostname (hosts file)
+
+Edit `C:\Windows\System32\drivers\etc\hosts` **as Administrator** (Notepad → Run as administrator; set file filter to **All Files**).
+
+Add:
+
+```
+127.0.0.1 weatherservice.x-plane.com
+```
+
+Verify in a new terminal: `ping weatherservice.x-plane.com` should reply from **127.0.0.1**.
+
+### 6. Run the app
+
+Open **Command Prompt or PowerShell as Administrator** (port **443** requires elevation):
+
+```cmd
+cd xplane12-weather-proxy
+conda activate xplane-weather
+python main.py
+```
+
+Set your X-Plane root in the UI (e.g. `C:\X-Plane 12`), wait for the first download cycle, then press **Refresh** in X-Plane weather settings.
 
 The **Setup help** button in the GUI shows OS-specific hosts and certificate steps.
+
+**Alternative (advanced):** If you prefer plain Python from [python.org](https://www.python.org/downloads/) instead of conda, you must install eccodes manually — see [ECMWF eccodes Windows docs](https://confluence.ecmwf.int/display/ECC/Releases) and ensure the eccodes DLL directory is on your `PATH`. Conda is strongly recommended on Windows.
 
 ---
 
