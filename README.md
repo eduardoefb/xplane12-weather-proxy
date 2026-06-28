@@ -97,31 +97,42 @@ Set your X-Plane root in the UI (default `~/X-Plane_12`), wait for the first dow
 
 ## Quick start — Windows
 
-On Windows, **eccodes** (required for GRIB slicing) is easiest to install with **Miniconda**. Conda is not pre-installed on Windows — follow the steps below.
+Two ways to install **eccodes** (required for GRIB slicing). **Option A (pip only)** is enough for most users — no Anaconda/conda required.
 
-### 1. Install Miniconda
+### Option A — Python + pip (recommended)
 
-1. Download **Miniconda** for Windows:  
-   https://docs.anaconda.com/miniconda/miniconda-install/
-2. Run the installer. Recommended options:
-   - Install for **Just Me**
-   - Check **“Add Miniconda3 to my PATH environment variable”** (or use **“Anaconda Prompt”** later if you skip this)
-   - Finish the install
-3. Open a **new** **Command Prompt** or **PowerShell** and verify:
+The `eccodes` package on PyPI includes the native library for Windows (v2.37+). A normal `pip install` is sufficient.
+
+#### 1. Install Python
+
+1. Download **Python 3.11+** from [python.org](https://www.python.org/downloads/)
+2. Run the installer and check **“Add python.exe to PATH”**
+3. Verify in a **new** Command Prompt:
 
    ```cmd
-   conda --version
+   python --version
    ```
 
-### 2. Create environment and install eccodes
+If GRIB slicing fails with a DLL error, install the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) (x64).
+
+#### 2. Clone the project and install packages
 
 ```cmd
-conda create -n xplane-weather python=3.11 -y
-conda activate xplane-weather
-conda install -c conda-forge eccodes cfgrib -y
+git clone https://github.com/eduardoefb/xplane12-weather-proxy.git
+cd xplane12-weather-proxy
+
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-### 3. Install mkcert (trusted HTTPS)
+Verify eccodes:
+
+```cmd
+python -m eccodes selfcheck
+```
+
+#### 3. Install mkcert (trusted HTTPS)
 
 With [Chocolatey](https://chocolatey.org/): `choco install mkcert`  
 With [Scoop](https://scoop.sh/): `scoop install mkcert`
@@ -132,16 +143,7 @@ Then run **Command Prompt as Administrator** once:
 mkcert -install
 ```
 
-### 4. Clone the project and install Python packages
-
-```cmd
-git clone https://github.com/eduardoefb/xplane12-weather-proxy.git
-cd xplane12-weather-proxy
-conda activate xplane-weather
-pip install -r requirements.txt
-```
-
-### 5. Redirect weather hostname (hosts file)
+#### 4. Redirect weather hostname (hosts file)
 
 Edit `C:\Windows\System32\drivers\etc\hosts` **as Administrator** (Notepad → Run as administrator; set file filter to **All Files**).
 
@@ -151,23 +153,49 @@ Add:
 127.0.0.1 weatherservice.x-plane.com
 ```
 
-Verify in a new terminal: `ping weatherservice.x-plane.com` should reply from **127.0.0.1**.
+Verify: `ping weatherservice.x-plane.com` should reply from **127.0.0.1**.
 
-### 6. Run the app
+#### 5. Run the app
 
 Open **Command Prompt or PowerShell as Administrator** (port **443** requires elevation):
 
 ```cmd
 cd xplane12-weather-proxy
-conda activate xplane-weather
+.venv\Scripts\activate
 python main.py
 ```
 
 Set your X-Plane root in the UI (e.g. `C:\X-Plane 12`), wait for the first download cycle, then press **Refresh** in X-Plane weather settings.
 
+---
+
+### Option B — Miniconda (alternative)
+
+Use this if pip/eccodes fails on your machine, or if you already use conda.
+
+#### 1. Install Miniconda
+
+1. Download **Miniconda** for Windows:  
+   https://docs.anaconda.com/miniconda/miniconda-install/
+2. Run the installer (check **Add to PATH**, or use **Anaconda Prompt**)
+3. Verify: `conda --version`
+
+#### 2. Create environment
+
+```cmd
+conda create -n xplane-weather python=3.11 -y
+conda activate xplane-weather
+conda install -c conda-forge eccodes cfgrib -y
+pip install -r requirements.txt
+```
+
+Then follow **Option A** steps 3–5 (mkcert, hosts, run as Administrator). Use `conda activate xplane-weather` instead of activating `.venv`.
+
+---
+
 The **Setup help** button in the GUI shows OS-specific hosts and certificate steps.
 
-**Alternative (advanced):** If you prefer plain Python from [python.org](https://www.python.org/downloads/) instead of conda, you must install eccodes manually — see [ECMWF eccodes Windows docs](https://confluence.ecmwf.int/display/ECC/Releases) and ensure the eccodes DLL directory is on your `PATH`. Conda is strongly recommended on Windows.
+**Note:** Windows support is untested by the author; pip + eccodes wheels should work, but conda is a solid fallback if you hit install issues.
 
 ---
 
@@ -194,6 +222,7 @@ The **Setup help** button in the GUI shows OS-specific hosts and certificate ste
 | Missing `calt` / `ccov` | Copy from a prior Laminar download or see [grib-download.md](docs/grib-download.md) |
 | Port 443 in use | **Linux:** `setcap` or sudo — **Windows:** run as Administrator |
 | Hosts redirect fails (Windows) | Edit hosts as Admin; run `ipconfig /flushdns` |
+| eccodes / DLL error (Windows) | Install [VC++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist); run `python -m eccodes selfcheck`; or try conda (README Option B) |
 
 **Test the local manifest:**
 
