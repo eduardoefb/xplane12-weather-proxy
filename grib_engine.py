@@ -26,7 +26,7 @@ from config import (
     NOMADS_FILTER_GFS_025,
     NOMADS_FILTER_GFS_100,
     NOMADS_GFS_BASE,
-    XP_WEATHER_DIR,
+    WEATHER_STAGING_DIR,
 )
 from time_utils import grib_filename, resolve_gfs_source
 
@@ -334,13 +334,16 @@ def _parse_grib_validity(path: str) -> datetime | None:
 
 
 def _find_cloud_template(
-    product: str, validity_time: datetime, output_dir: str
+    product: str,
+    validity_time: datetime,
+    staging_dir: str,
+    template_dirs: tuple[str, ...] = (),
 ) -> str | None:
     """Find a calt/ccov source file for the requested validity window."""
     target_name = grib_filename(validity_time, product)
     validity_key = validity_time.strftime("%Y-%m-%d-%H")
 
-    search_dirs = [output_dir, *GRIB_CLOUD_TEMPLATE_DIRS]
+    search_dirs = [staging_dir, *template_dirs, *GRIB_CLOUD_TEMPLATE_DIRS]
     exact_matches: list[str] = []
     other_matches: list[tuple[int, str]] = []
 
@@ -357,7 +360,7 @@ def _find_cloud_template(
             if os.path.getsize(path) <= 0:
                 continue
             basename = os.path.basename(path)
-            if directory == output_dir and validity_key in basename:
+            if directory == staging_dir and validity_key in basename:
                 continue
             parsed = _parse_grib_validity(path)
             if parsed is None:
@@ -377,7 +380,11 @@ def _find_cloud_template(
     return None
 
 
-def _preserve_cloud_products(validity_time: datetime, output_dir: str) -> list[str]:
+def _preserve_cloud_products(
+    validity_time: datetime,
+    staging_dir: str,
+    template_dirs: tuple[str, ...] = (),
+) -> list[str]:
     """
     calt/ccov use WAFS-specific GRIB encoding unavailable from raw GFS filters.
     Reuse an existing local copy from another validity window when possible.
@@ -386,12 +393,12 @@ def _preserve_cloud_products(validity_time: datetime, output_dir: str) -> list[s
 
     for product in GRIB_PRESERVED_PRODUCTS:
         filename = grib_filename(validity_time, product)
-        output_path = os.path.join(output_dir, filename)
+        output_path = os.path.join(staging_dir, filename)
         if os.path.isfile(output_path) and os.path.getsize(output_path) > 0:
             preserved.append(filename)
             continue
 
-        source = _find_cloud_template(product, validity_time, output_dir)
+        source = _find_cloud_template(product, validity_time, staging_dir, template_dirs)
         if source is None:
             print(f"No local template found for {filename}")
             continue
@@ -406,10 +413,10 @@ def _preserve_cloud_products(validity_time: datetime, output_dir: str) -> list[s
     return preserved
 
 
-def products_ready(validity_time: datetime, output_dir: str) -> bool:
+def products_ready(validity_time: datetime, staging_dir: str) -> bool:
     return all(
-        os.path.isfile(os.path.join(output_dir, grib_filename(validity_time, product)))
-        and os.path.getsize(os.path.join(output_dir, grib_filename(validity_time, product))) > 0
+        os.path.isfile(os.path.join(staging_dir, grib_filename(validity_time, product)))
+        and os.path.getsize(os.path.join(staging_dir, grib_filename(validity_time, product))) > 0
         for product in GRIB_PRODUCTS
     )
 
@@ -418,13 +425,16 @@ def write_grib_products(
     validity_time: datetime,
     source_1deg: str,
     source_025deg: str | None,
-    output_dir: str = XP_WEATHER_DIR,
+    staging_dir: str = WEATHER_STAGING_DIR,
+    *,
+    template_dirs: tuple[str, ...] = (),
 ) -> list[str]:
     """Slice and write all required GRIB products for one validity time."""
+    os.makedirs(staging_dir, exist_ok=True)
     written: list[str] = []
     for product in GRIB_GENERATED_1DEG:
         filename = grib_filename(validity_time, product)
-        output_path = os.path.join(output_dir, filename)
+        output_path = os.path.join(staging_dir, filename)
         print(
             f"[{datetime.now().strftime('%H:%M:%S')}] "
             f"Slicing {product} -> {filename}"
@@ -441,7 +451,7 @@ def write_grib_products(
     if source_025deg:
         for product in GRIB_GENERATED_025DEG:
             filename = grib_filename(validity_time, product)
-            output_path = os.path.join(output_dir, filename)
+            output_path = os.path.join(staging_dir, filename)
             print(
                 f"[{datetime.now().strftime('%H:%M:%S')}] "
                 f"Slicing {product} -> {filename}"
@@ -455,15 +465,23 @@ def write_grib_products(
             else:
                 print(f"Failed to build {filename}")
 
-    written.extend(_preserve_cloud_products(validity_time, output_dir))
+    written.extend(
+        _preserve_cloud_products(validity_time, staging_dir, template_dirs)
+    )
     return written
 
 
 class GribEngine:
     """Handles the 3-hour GRIB refresh cycle."""
 
-    def __init__(self, output_dir: str = XP_WEATHER_DIR) -> None:
-        self.output_dir = output_dir
+    def __init__(
+        self,
+        staging_dir: str = WEATHER_STAGING_DIR,
+        *,
+        template_dirs: tuple[str, ...] = (),
+    ) -> None:
+        self.staging_dir = staging_dir
+        self.template_dirs = template_dirs
         self.last_processed_times: set[datetime] = set()
         self._busy = False
 
@@ -473,7 +491,7 @@ class GribEngine:
 
     def run_cycle(self, validity_time: datetime, now: datetime | None = None, *, force: bool = False) -> bool:
         now = now or datetime.now(validity_time.tzinfo)
-        if not force and products_ready(validity_time, self.output_dir):
+        if not force and products_ready(validity_time, self.staging_dir):
             self.last_processed_times.add(validity_time)
             return True
 
@@ -489,15 +507,23 @@ class GribEngine:
             return False
 
         source_025deg = download_grib_source(date_cycle, cycle, forecast, "0p25")
-        write_grib_products(validity_time, source_1deg, source_025deg, self.output_dir)
-        if products_ready(validity_time, self.output_dir):
+        write_grib_products(
+            validity_time,
+            source_1deg,
+            source_025deg,
+            self.staging_dir,
+            template_dirs=self.template_dirs,
+        )
+        if products_ready(validity_time, self.staging_dir):
             self.last_processed_times.add(validity_time)
             return True
 
         missing = [
             grib_filename(validity_time, product)
             for product in GRIB_PRODUCTS
-            if not os.path.isfile(os.path.join(self.output_dir, grib_filename(validity_time, product)))
+            if not os.path.isfile(
+                os.path.join(self.staging_dir, grib_filename(validity_time, product))
+            )
         ]
         print(f"Incomplete GRIB set; still missing: {', '.join(missing)}")
         return False

@@ -15,7 +15,7 @@ from config import (
     HTTP_USER_AGENT,
     METAR_CACHE_URL,
     METAR_CYCLE_URL,
-    XP_WEATHER_DIR,
+    WEATHER_STAGING_DIR,
 )
 
 
@@ -94,10 +94,10 @@ def fetch_global_metars(now: datetime | None = None) -> str | None:
     return _fetch_metar_cycle(now)
 
 
-def write_metar_file(filename: str, data: str, output_dir: str = XP_WEATHER_DIR) -> bool:
-    """Write a METAR text file into the X-Plane real-weather directory."""
-    os.makedirs(output_dir, exist_ok=True)
-    filepath = os.path.join(output_dir, filename)
+def write_metar_file(filename: str, data: str, staging_dir: str = WEATHER_STAGING_DIR) -> bool:
+    """Write a METAR text file into the weather staging directory."""
+    os.makedirs(staging_dir, exist_ok=True)
+    filepath = os.path.join(staging_dir, filename)
     try:
         with open(filepath, "w", encoding="utf-8") as handle:
             handle.write(data)
@@ -111,8 +111,8 @@ def write_metar_file(filename: str, data: str, output_dir: str = XP_WEATHER_DIR)
 class MetarEngine:
     """Handles the 15-minute METAR refresh cycle."""
 
-    def __init__(self, output_dir: str = XP_WEATHER_DIR) -> None:
-        self.output_dir = output_dir
+    def __init__(self, staging_dir: str = WEATHER_STAGING_DIR) -> None:
+        self.staging_dir = staging_dir
         self.last_processed_time = None
 
     def run_cycle(self, target_time) -> bool:
@@ -125,7 +125,7 @@ class MetarEngine:
         metar_data = fetch_global_metars(target_time)
         if not metar_data:
             return False
-        if not write_metar_file(filename, metar_data, self.output_dir):
+        if not write_metar_file(filename, metar_data, self.staging_dir):
             return False
 
         self.last_processed_time = target_time
@@ -133,15 +133,15 @@ class MetarEngine:
         # X-Plane needs pre/post METAR files 15 minutes apart in the manifest.
         pre_time = target_time - timedelta(minutes=15)
         pre_filename = metar_filename(pre_time)
-        pre_path = os.path.join(self.output_dir, pre_filename)
+        pre_path = os.path.join(self.staging_dir, pre_filename)
         if not os.path.isfile(pre_path):
-            write_metar_file(pre_filename, metar_data, self.output_dir)
+            write_metar_file(pre_filename, metar_data, self.staging_dir)
 
         # Keep the current quarter-hour file fresh even between boundary ticks.
         current_rounded = round_to_quarter_hour(target_time)
         current_filename = metar_filename(current_rounded)
         if current_filename != filename:
-            write_metar_file(current_filename, metar_data, self.output_dir)
+            write_metar_file(current_filename, metar_data, self.staging_dir)
 
         return True
 

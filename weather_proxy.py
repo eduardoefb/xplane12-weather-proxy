@@ -8,7 +8,6 @@ import json
 import os
 import re
 import ssl
-import subprocess
 import sys
 import threading
 from datetime import datetime, timedelta, timezone
@@ -21,8 +20,9 @@ from config import (
     WEATHER_PROXY_CERT_DIR,
     WEATHER_PROXY_HOST,
     WEATHER_PROXY_PORT,
-    XP_WEATHER_DIR,
+    WEATHER_STAGING_DIR,
 )
+from platform_support import generate_self_signed_cert
 from setup_utils import generate_mkcert_material, mkcert_ca_installed, setup_instructions
 from time_utils import grib_filename, grib_validity_windows, metar_filename, round_to_quarter_hour, utc_now
 
@@ -113,10 +113,10 @@ def _collect_grib_timestamps(manifest: dict[str, Any]) -> set[str]:
 
 
 class WeatherManifestBuilder:
-    """Build a weatherservice-compatible manifest from local files."""
+    """Build a weatherservice-compatible manifest from local staging files."""
 
-    def __init__(self, output_dir: str, base_url: str) -> None:
-        self.output_dir = output_dir
+    def __init__(self, staging_dir: str, base_url: str) -> None:
+        self.staging_dir = staging_dir
         self.base_url = base_url.rstrip("/")
         self._routes: dict[str, str] = {}
 
@@ -126,7 +126,7 @@ class WeatherManifestBuilder:
         return url
 
     def _local_path(self, filename: str) -> str | None:
-        path = os.path.join(self.output_dir, filename)
+        path = os.path.join(self.staging_dir, filename)
         if os.path.isfile(path) and os.path.getsize(path) > 0:
             return path
         return None
@@ -156,7 +156,7 @@ class WeatherManifestBuilder:
         if len(found) >= 2:
             return found[:2]
 
-        pattern = os.path.join(self.output_dir, "metar-*.txt")
+        pattern = os.path.join(self.staging_dir, "metar-*.txt")
         extras = sorted(glob.glob(pattern), key=os.path.getmtime, reverse=True)
         for path in extras:
             if path in seen_paths or os.path.getsize(path) <= 0:
@@ -312,24 +312,46 @@ class WeatherManifestBuilder:
         return dict(self._routes)
 
 
-def publish_epoch_aliases(output_dir: str = XP_WEATHER_DIR, now: datetime | None = None) -> None:
+def remove_epoch_aliases(xplane_weather_dir: str) -> None:
+    """Remove 1970-01-01 fallback symlinks/copies from X-Plane's weather cache."""
+    targets = [os.path.join(xplane_weather_dir, "metar-1970-01-01-00.00.txt")]
+    for product in GRIB_PRODUCTS:
+        targets.append(
+            os.path.join(
+                xplane_weather_dir, f"GRIB-1970-01-01-00.00-ZULU-{product}.grib"
+            )
+        )
+    for path in targets:
+        if os.path.islink(path) or os.path.isfile(path):
+            os.remove(path)
+
+
+def publish_epoch_aliases(
+    staging_dir: str,
+    xplane_weather_dir: str,
+    now: datetime | None = None,
+) -> None:
     """
-    When the LR manifest is unavailable X-Plane keeps weather time at epoch zero
-    and looks for 1970-01-01 filenames. Mirror the latest local data there too.
+    Fallback when the local HTTPS proxy is unavailable.
+
+    Without a manifest X-Plane keeps weather time at Unix epoch zero and looks
+    for 1970-01-01 filenames in its real-weather cache. Copy the latest staging
+    files there. Not used when the proxy on port 443 is running.
     """
     now = now or utc_now()
-    metar_src = os.path.join(output_dir, metar_filename(round_to_quarter_hour(now)))
-    metar_dst = os.path.join(output_dir, "metar-1970-01-01-00.00.txt")
+    os.makedirs(xplane_weather_dir, exist_ok=True)
+    metar_src = os.path.join(staging_dir, metar_filename(round_to_quarter_hour(now)))
+    metar_dst = os.path.join(xplane_weather_dir, "metar-1970-01-01-00.00.txt")
     if os.path.isfile(metar_src):
         _replace_symlink_or_copy(metar_src, metar_dst)
 
     for validity in grib_validity_windows(now):
         for product in GRIB_PRODUCTS:
-            src = os.path.join(output_dir, grib_filename(validity, product))
+            src = os.path.join(staging_dir, grib_filename(validity, product))
             if not os.path.isfile(src):
                 continue
             dst = os.path.join(
-                output_dir,
+                xplane_weather_dir,
                 f"GRIB-1970-01-01-00.00-ZULU-{product}.grib",
             )
             _replace_symlink_or_copy(src, dst)
@@ -371,27 +393,10 @@ def _ensure_tls_material(cert_dir: str, hostname: str) -> tuple[str, str]:
 
     print(f"Generating self-signed TLS certificate for {hostname} ...")
     print("  Tip: install mkcert for trusted HTTPS (mkcert -install)")
-    subprocess.run(
-        [
-            "openssl",
-            "req",
-            "-x509",
-            "-newkey",
-            "rsa:2048",
-            "-keyout",
-            key_path,
-            "-out",
-            cert_path,
-            "-days",
-            "825",
-            "-nodes",
-            "-subj",
-            f"/CN={hostname}",
-            "-addext",
-            f"subjectAltName=DNS:{hostname}",
-        ],
-        check=True,
-    )
+    if not generate_self_signed_cert(cert_path, key_path, hostname):
+        raise RuntimeError(
+            "Could not generate TLS certificate. Install mkcert or the cryptography package."
+        )
     return cert_path, key_path
 
 
@@ -400,23 +405,22 @@ class WeatherProxyServer:
 
     def __init__(
         self,
-        output_dir: str = XP_WEATHER_DIR,
+        staging_dir: str = WEATHER_STAGING_DIR,
         host: str = WEATHER_PROXY_HOST,
         port: int = WEATHER_PROXY_PORT,
         hostname: str = "weatherservice.x-plane.com",
     ) -> None:
-        self.output_dir = output_dir
+        self.staging_dir = staging_dir
         self.host = host
         self.port = port
         self.hostname = hostname
         self.base_url = f"https://{hostname}"
-        self._builder = WeatherManifestBuilder(output_dir, self.base_url)
+        self._builder = WeatherManifestBuilder(staging_dir, self.base_url)
         self._httpd: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
     def _make_handler(self):
         builder = self._builder
-        output_dir = self.output_dir
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.1"
@@ -448,7 +452,6 @@ class WeatherProxyServer:
                         self.end_headers()
                         if send_body:
                             self.wfile.write(body)
-                        publish_epoch_aliases(output_dir)
                         return
 
                     local_path = builder.routes.get(path)
@@ -500,7 +503,7 @@ class WeatherProxyServer:
         print("\n" + "=" * 72)
         print("Local X-Plane weather proxy is running")
         print(f"  Listening: https://{self.host}:{self.port}/")
-        print(f"  Serving files from: {self.output_dir}")
+        print(f"  Serving files from: {self.staging_dir}")
         for paragraph in setup_instructions(WEATHER_PROXY_CERT_DIR):
             print(f"\n{paragraph}")
         print("=" * 72 + "\n")

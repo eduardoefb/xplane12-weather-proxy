@@ -22,6 +22,7 @@ htmlcov/
 # Local runtime data (machine-specific paths, large downloads)
 user_settings.json
 .grib_cache/
+.weather_data/
 .weather_proxy_certs/
 
 # Secrets / env

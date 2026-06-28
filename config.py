@@ -2,8 +2,13 @@
 
 import os
 
-# X-Plane real-weather output directory (adjust as needed).
-XP_WEATHER_DIR = os.path.expanduser("~/X-Plane_12/Output/real weather")
+from platform_support import cloud_template_dirs, default_xplane_root
+
+# Local staging directory for METAR/GRIB produced by this app (served by the proxy).
+WEATHER_STAGING_DIR = os.path.join(os.path.dirname(__file__), ".weather_data")
+
+# X-Plane's real-weather cache (X-Plane writes here after downloading from the proxy).
+XP_WEATHER_DIR = os.path.join(default_xplane_root(), "Output", "real weather")
 
 # METAR cycle dump (X-Plane format with observation time headers).
 METAR_CYCLE_URL = (
@@ -66,10 +71,7 @@ GRIB_GENERATED_025DEG = ("svis",)
 GRIB_PRESERVED_PRODUCTS = ("calt", "ccov")
 
 # Extra directories searched for calt/ccov templates (official X-Plane or prior downloads).
-GRIB_CLOUD_TEMPLATE_DIRS = (
-    os.path.expanduser("~/tmp/weather"),
-    os.path.join(os.path.dirname(__file__), "templates", "grib"),
-)
+GRIB_CLOUD_TEMPLATE_DIRS = cloud_template_dirs()
 
 # Local cache for downloaded source GRIB files.
 GRIB_CACHE_DIR = os.path.join(os.path.dirname(__file__), ".grib_cache")

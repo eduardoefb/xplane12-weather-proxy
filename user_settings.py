@@ -7,9 +7,12 @@ import os
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from config import GRIB_CLOUD_TEMPLATE_DIRS, WEATHER_STAGING_DIR
+from platform_support import default_xplane_root
+
 SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "user_settings.json")
 
-DEFAULT_XPLANE_ROOT = os.path.expanduser("~/X-Plane_12")
+DEFAULT_XPLANE_ROOT = default_xplane_root()
 DEFAULT_UPDATE_INTERVAL_MINUTES = 15
 
 
@@ -19,8 +22,18 @@ class UserSettings:
     update_interval_minutes: int = DEFAULT_UPDATE_INTERVAL_MINUTES
 
     @property
+    def weather_staging_dir(self) -> str:
+        return WEATHER_STAGING_DIR
+
+    @property
     def weather_output_dir(self) -> str:
+        """X-Plane's real-weather cache (populated by X-Plane via the proxy)."""
         return os.path.join(os.path.expanduser(self.xplane_root), "Output", "real weather")
+
+    @property
+    def weather_template_dirs(self) -> tuple[str, ...]:
+        """Extra directories searched for calt/ccov and aux-product templates."""
+        return (self.weather_output_dir, *GRIB_CLOUD_TEMPLATE_DIRS)
 
     @property
     def update_interval_seconds(self) -> float:

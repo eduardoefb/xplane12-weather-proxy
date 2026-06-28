@@ -6,35 +6,26 @@ import os
 import shutil
 import subprocess
 
-WEATHER_HOST = "weatherservice.x-plane.com"
-HOSTS_PATH = "/etc/hosts"
-MKCERT_HOSTS_LINE = f"127.0.0.1 {WEATHER_HOST}"
+from platform_support import (
+    WEATHER_HOST,
+    hosts_redirect_active,
+    hosts_redirect_commented,
+    hosts_setup_instructions,
+    mkcert_install_hint,
+    read_hosts_lines,
+)
 
-
-def read_hosts_lines() -> list[str]:
-    try:
-        with open(HOSTS_PATH, encoding="utf-8") as handle:
-            return handle.readlines()
-    except OSError:
-        return []
-
-
-def hosts_redirect_active() -> bool:
-    for line in read_hosts_lines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
-            continue
-        if WEATHER_HOST in stripped and "127.0.0.1" in stripped.split("#", 1)[0]:
-            return True
-    return False
-
-
-def hosts_redirect_commented() -> bool:
-    for line in read_hosts_lines():
-        stripped = line.strip()
-        if WEATHER_HOST in stripped and "127.0.0.1" in stripped and stripped.startswith("#"):
-            return True
-    return False
+__all__ = [
+    "WEATHER_HOST",
+    "read_hosts_lines",
+    "hosts_redirect_active",
+    "hosts_redirect_commented",
+    "mkcert_available",
+    "mkcert_ca_installed",
+    "generate_mkcert_material",
+    "setup_status",
+    "setup_instructions",
+]
 
 
 def mkcert_available() -> bool:
@@ -90,11 +81,7 @@ def setup_instructions(cert_dir: str) -> list[str]:
     status = setup_status(cert_dir)
 
     if not status["hosts_active"]:
-        lines.append(
-            "Enable the local weather proxy in /etc/hosts (requires sudo):\n"
-            f"  sudo sed -i 's/^#\\?.*{WEATHER_HOST}.*/127.0.0.1 {WEATHER_HOST}/' {HOSTS_PATH}\n"
-            f"Or add manually: 127.0.0.1 {WEATHER_HOST}"
-        )
+        lines.append(hosts_setup_instructions())
         if status["hosts_commented"]:
             lines.append("Note: this entry exists but is commented out with #.")
 
@@ -105,18 +92,16 @@ def setup_instructions(cert_dir: str) -> list[str]:
                 "  mkcert -install"
             )
         if status["mkcert_available"]:
+            remove_cmd = "rmdir /s /q" if os.name == "nt" else "rm -rf"
             lines.append(
                 "Regenerate a browser/X-Plane-trusted certificate:\n"
-                f"  rm -rf {cert_dir}\n"
+                f"  {remove_cmd} {cert_dir}\n"
                 f"  mkcert -cert-file {cert_dir}/weatherservice.crt "
                 f"-key-file {cert_dir}/weatherservice.key {WEATHER_HOST}\n"
                 "Then restart this app."
             )
         else:
-            lines.append(
-                "Install mkcert for trusted HTTPS (recommended):\n"
-                "  sudo apt install mkcert && mkcert -install"
-            )
+            lines.append(mkcert_install_hint())
 
     if status["hosts_active"] and status["tls_trusted"]:
         lines.append("Setup looks good. Restart X-Plane and press Refresh in Weather.")

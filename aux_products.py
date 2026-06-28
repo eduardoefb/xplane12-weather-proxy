@@ -3,19 +3,27 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
 import shutil
-import subprocess
 from datetime import datetime, timezone
 from typing import Any
+
 from config import (
     GRIB_CLOUD_TEMPLATE_DIRS,
     HTTP_TIMEOUT_SECONDS,
-    XP_WEATHER_DIR,
+    HTTP_USER_AGENT,
+    WEATHER_STAGING_DIR,
+)
+from platform_support import (
+    WEATHER_HOST,
+    https_download_bypass_hosts,
+    https_get_bypass_hosts,
+    resolve_public_ipv4,
 )
 from time_utils import grib_filename, grib_validity_windows, utc_now, wifs_validity_time
 
-LAMINAR_HOST = "weatherservice.x-plane.com"
+LAMINAR_HOST = WEATHER_HOST
 
 # Manifest type -> local GRIB filename suffix.
 WIFS_LOCAL_SUFFIX = {
@@ -30,44 +38,8 @@ SNOD_MANIFEST_TYPE = "snod"
 
 
 def laminar_server_ip() -> str | None:
-    """Resolve Laminar's weather service IP via DNS (bypasses /etc/hosts)."""
-    try:
-        result = subprocess.run(
-            ["dig", "+short", LAMINAR_HOST, "A"],
-            capture_output=True,
-            text=True,
-            check=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.CalledProcessError):
-        return None
-    for line in result.stdout.splitlines():
-        address = line.strip().rstrip(".")
-        if address and ":" not in address:
-            return address
-    return None
-
-
-def _curl_get(url: str, server_ip: str) -> bytes | None:
-    try:
-        result = subprocess.run(
-            [
-                "curl",
-                "-sf",
-                "--max-time",
-                str(HTTP_TIMEOUT_SECONDS),
-                "--resolve",
-                f"{LAMINAR_HOST}:443:{server_ip}",
-                url,
-            ],
-            capture_output=True,
-            timeout=HTTP_TIMEOUT_SECONDS + 5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-    if result.returncode != 0 or not result.stdout:
-        return None
-    return result.stdout
+    """Resolve Laminar's weather service IP via public DNS (bypasses hosts file)."""
+    return resolve_public_ipv4(LAMINAR_HOST)
 
 
 def _fetch_manifest(now: datetime) -> dict[str, Any] | None:
@@ -79,12 +51,16 @@ def _fetch_manifest(now: datetime) -> dict[str, Any] | None:
         f"https://{LAMINAR_HOST}/api/v1/manifest/debug/"
         f"{now.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}"
     )
-    body = _curl_get(url, ip)
+    body = https_get_bypass_hosts(
+        url,
+        LAMINAR_HOST,
+        ip,
+        timeout=HTTP_TIMEOUT_SECONDS,
+        user_agent=HTTP_USER_AGENT,
+    )
     if body is None:
         return None
     try:
-        import json
-
         return json.loads(body)
     except ValueError:
         return None
@@ -94,44 +70,28 @@ def _download_file(url: str, dest_path: str, *, server_ip: str | None = None) ->
     ip = server_ip or laminar_server_ip()
     if ip is None:
         return False
-
-    os.makedirs(os.path.dirname(dest_path) or ".", exist_ok=True)
-    temp_path = f"{dest_path}.part"
-    try:
-        result = subprocess.run(
-            [
-                "curl",
-                "-sf",
-                "--max-time",
-                str(HTTP_TIMEOUT_SECONDS),
-                "--resolve",
-                f"{LAMINAR_HOST}:443:{ip}",
-                url,
-                "-o",
-                temp_path,
-            ],
-            timeout=HTTP_TIMEOUT_SECONDS + 5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    if result.returncode != 0 or not os.path.isfile(temp_path):
-        return False
-    if os.path.getsize(temp_path) < 1024:
-        os.remove(temp_path)
-        return False
-    if os.path.exists(dest_path):
-        os.remove(dest_path)
-    shutil.move(temp_path, dest_path)
-    return True
+    return https_download_bypass_hosts(
+        url,
+        dest_path,
+        LAMINAR_HOST,
+        ip,
+        timeout=HTTP_TIMEOUT_SECONDS,
+        user_agent=HTTP_USER_AGENT,
+    )
 
 
-def _copy_template(product_suffix: str, validity: datetime, output_dir: str) -> bool:
-    target = os.path.join(output_dir, grib_filename(validity, product_suffix))
+def _copy_template(
+    product_suffix: str,
+    validity: datetime,
+    staging_dir: str,
+    template_dirs: tuple[str, ...] = (),
+) -> bool:
+    target = os.path.join(staging_dir, grib_filename(validity, product_suffix))
     if os.path.isfile(target) and os.path.getsize(target) > 0:
         return True
 
     pattern = f"GRIB-*-ZULU-{product_suffix}.grib"
-    search_dirs = [output_dir, *GRIB_CLOUD_TEMPLATE_DIRS]
+    search_dirs = [staging_dir, *template_dirs, *GRIB_CLOUD_TEMPLATE_DIRS]
     candidates: list[tuple[float, str]] = []
     for directory in search_dirs:
         if not os.path.isdir(directory):
@@ -157,7 +117,7 @@ def _sync_manifest_group(
     section: str,
     manifest_type: str,
     local_suffix: str,
-    output_dir: str,
+    staging_dir: str,
     server_ip: str,
 ) -> list[str]:
     written: list[str] = []
@@ -169,7 +129,7 @@ def _sync_manifest_group(
             if not depicts:
                 continue
             validity = datetime.fromisoformat(depicts.replace("Z", "+00:00"))
-            dest = os.path.join(output_dir, grib_filename(validity, local_suffix))
+            dest = os.path.join(staging_dir, grib_filename(validity, local_suffix))
             if os.path.isfile(dest) and os.path.getsize(dest) > 1024:
                 written.append(os.path.basename(dest))
                 continue
@@ -179,12 +139,12 @@ def _sync_manifest_group(
             print(f"[aux] Downloading {manifest_type} ({validity:%H:%M}Z) ...")
             if _download_file(url, dest, server_ip=server_ip):
                 written.append(os.path.basename(dest))
-            elif _copy_template(local_suffix, validity, output_dir):
+            elif _copy_template(local_suffix, validity, staging_dir):
                 written.append(os.path.basename(dest))
     return written
 
 
-def _mirror_wifs_to_validity_windows(output_dir: str, now: datetime) -> list[str]:
+def _mirror_wifs_to_validity_windows(staging_dir: str, now: datetime) -> list[str]:
     """
     Copy canonical 03:00Z WIFS files into the active 3-hour validity windows.
 
@@ -195,10 +155,10 @@ def _mirror_wifs_to_validity_windows(output_dir: str, now: datetime) -> list[str
     written: list[str] = []
     for validity in grib_validity_windows(now):
         for suffix in WIFS_LOCAL_SUFFIX.values():
-            source = os.path.join(output_dir, grib_filename(source_time, suffix))
+            source = os.path.join(staging_dir, grib_filename(source_time, suffix))
             if not os.path.isfile(source) or os.path.getsize(source) <= 1024:
                 continue
-            target = os.path.join(output_dir, grib_filename(validity, suffix))
+            target = os.path.join(staging_dir, grib_filename(validity, suffix))
             if (
                 os.path.isfile(target)
                 and os.path.getsize(target) > 1024
@@ -212,8 +172,10 @@ def _mirror_wifs_to_validity_windows(output_dir: str, now: datetime) -> list[str
 
 
 def sync_aux_products(
-    output_dir: str = XP_WEATHER_DIR,
+    staging_dir: str = WEATHER_STAGING_DIR,
     now: datetime | None = None,
+    *,
+    template_dirs: tuple[str, ...] = (),
 ) -> list[str]:
     """
     Ensure snod (nomads_extra) and WIFS GRIB files exist locally.
@@ -221,6 +183,7 @@ def sync_aux_products(
     Downloads from Laminar when reachable; otherwise reuses the newest cached copy.
     """
     now = now or utc_now()
+    os.makedirs(staging_dir, exist_ok=True)
     written: list[str] = []
 
     server_ip = laminar_server_ip()
@@ -233,7 +196,7 @@ def sync_aux_products(
                 "nomads_extra",
                 SNOD_MANIFEST_TYPE,
                 SNOD_MANIFEST_TYPE,
-                output_dir,
+                staging_dir,
                 server_ip,
             )
         )
@@ -244,24 +207,24 @@ def sync_aux_products(
                     "wifs",
                     manifest_type,
                     local_suffix,
-                    output_dir,
+                    staging_dir,
                     server_ip,
                 )
             )
 
     # Fallback: reuse any cached copies for expected paths.
     for validity in grib_validity_windows(now):
-        if _copy_template(SNOD_MANIFEST_TYPE, validity, output_dir):
+        if _copy_template(SNOD_MANIFEST_TYPE, validity, staging_dir, template_dirs):
             name = grib_filename(validity, SNOD_MANIFEST_TYPE)
             if name not in written:
                 written.append(name)
 
     wifs_time = wifs_validity_time(now)
     for local_suffix in WIFS_LOCAL_SUFFIX.values():
-        if _copy_template(local_suffix, wifs_time, output_dir):
+        if _copy_template(local_suffix, wifs_time, staging_dir, template_dirs):
             name = grib_filename(wifs_time, local_suffix)
             if name not in written:
                 written.append(name)
 
-    written.extend(_mirror_wifs_to_validity_windows(output_dir, now))
+    written.extend(_mirror_wifs_to_validity_windows(staging_dir, now))
     return written

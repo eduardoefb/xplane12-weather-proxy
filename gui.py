@@ -14,6 +14,7 @@ from ttkbootstrap.scrolled import ScrolledText
 from config import WEATHER_PROXY_CERT_DIR
 from log_stream import install_log_capture
 from main import WeatherServer
+from platform_support import WEATHER_HOST, hosts_file_path
 from setup_utils import hosts_redirect_active, setup_instructions, setup_status
 from user_settings import SETTINGS_PATH, UserSettings, load_settings, save_settings
 
@@ -327,14 +328,16 @@ class WeatherApp(ttk.Window):
 
         issues: list[str] = []
         if not status["hosts_active"]:
+            hosts_label = hosts_file_path()
             if status["hosts_commented"]:
                 issues.append(
-                    "/etc/hosts redirect is COMMENTED OUT — X-Plane is using Laminar's "
-                    "server instead of this app."
+                    f"Hosts redirect for {WEATHER_HOST} is COMMENTED OUT in {hosts_label} — "
+                    "X-Plane is using Laminar's server instead of this app."
                 )
             else:
                 issues.append(
-                    "/etc/hosts redirect is missing — X-Plane cannot reach the local proxy."
+                    f"Hosts redirect for {WEATHER_HOST} is missing in {hosts_label} — "
+                    "X-Plane cannot reach the local proxy."
                 )
         if not status["tls_trusted"]:
             issues.append(
@@ -391,10 +394,14 @@ class WeatherApp(ttk.Window):
     def _update_weather_dir_label(self) -> None:
         try:
             settings = self._read_form_settings(validate=False)
-            path = settings.weather_output_dir
+            staging = settings.weather_staging_dir
+            cache = settings.weather_output_dir
         except ValueError:
-            path = "(invalid path)"
-        self._weather_dir_label.configure(text=f"Weather output → {path}")
+            staging = "(invalid path)"
+            cache = "(invalid path)"
+        self._weather_dir_label.configure(
+            text=f"Staging → {staging}\nX-Plane cache → {cache}"
+        )
 
     def _read_form_settings(self, *, validate: bool = True) -> UserSettings:
         root = self.xplane_root_var.get().strip()
