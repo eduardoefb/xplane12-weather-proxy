@@ -1,0 +1,5 @@
+requests>=2.31.0
+xarray>=2024.1.0
+cfgrib>=0.9.14.1
+eccodes>=1.6.0
+ttkbootstrap>=1.10.1
