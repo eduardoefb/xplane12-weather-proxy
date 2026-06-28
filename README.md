@@ -1,4 +1,4 @@
-# X-Plane Weather Fallback
+# X-Plane Weather Fallback (Used for backup only, when X-Plane weather server is down)
 
 Local METAR and GRIB weather server for **X-Plane 12** when Laminar’s `weatherservice.x-plane.com` is down or unreliable.
 
