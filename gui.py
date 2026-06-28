@@ -267,10 +267,10 @@ class WeatherApp(ttk.Window):
 
         ttk.Button(
             actions,
-            text="Update GRIB now",
+            text="Update weather now",
             style="Accent.TButton",
             bootstyle="primary",
-            command=self._on_update_grib,
+            command=self._on_update_weather,
         ).pack(side=LEFT, padx=(0, 10))
         ttk.Button(
             actions,
@@ -450,11 +450,11 @@ class WeatherApp(ttk.Window):
         self.server.apply_settings(self._settings)
         self._set_status("running", "Running")
 
-    def _on_update_grib(self) -> None:
+    def _on_update_weather(self) -> None:
         if self._pending_settings_apply:
             self._apply_settings()
-        print("Manual GRIB update requested from UI.")
-        self.server.force_grib_update()
+        print("Manual weather update requested from UI.")
+        self.server.force_weather_update()
 
     def _enqueue_log(self, text: str) -> None:
         self._log_queue.put(text)

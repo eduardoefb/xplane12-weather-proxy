@@ -79,28 +79,37 @@ class WeatherServer:
         if self._on_stopped is not None:
             self._on_stopped()
 
-    def force_grib_update(self) -> None:
-        """Re-download GRIB products for the current validity windows."""
+    def force_weather_update(self) -> None:
+        """Re-download METAR and GRIB products for the current cycles."""
 
         def worker() -> None:
+            now = utc_now()
+            print("Manual weather update started...")
+            current_rounded = round_to_quarter_hour(now)
+            self.metar_engine.last_processed_time = None
+            self.metar_engine.run_cycle(current_rounded)
+
             with self._grib_lock:
                 if self.grib_engine.busy:
-                    print("GRIB update already in progress.")
+                    print("GRIB update already in progress; METAR was refreshed.")
+                    publish_epoch_aliases(self.output_dir, now)
                     return
                 self.grib_engine._busy = True
                 try:
-                    now = utc_now()
-                    print("Manual GRIB update started...")
                     for validity in grib_validity_windows(now):
                         self.grib_engine.last_processed_times.discard(validity)
                         self.grib_engine.run_cycle(validity, now, force=True)
                     sync_aux_products(self.output_dir, now)
                     publish_epoch_aliases(self.output_dir, now)
-                    print("Manual GRIB update finished.")
+                    print("Manual weather update finished.")
                 finally:
                     self.grib_engine._busy = False
 
-        threading.Thread(target=worker, name="grib-manual", daemon=True).start()
+        threading.Thread(target=worker, name="weather-manual", daemon=True).start()
+
+    def force_grib_update(self) -> None:
+        """Backward-compatible alias for manual refresh."""
+        self.force_weather_update()
 
     def _run_grib_async(self, validity_times: list, *, force: bool = False) -> None:
         def worker() -> None:

@@ -34,18 +34,18 @@ def _http_get(url: str) -> str | None:
         return None
 
 
-def _metar_cycle_hour(now: datetime | None = None) -> int:
-    """Use the previous UTC hour cycle, matching X-Plane's weather mirror."""
-    now = now or datetime.now(timezone.utc)
-    return (now.hour + 23) % 24
+def _metar_cycle_hours(now: datetime) -> list[int]:
+    """Try the current UTC hour cycle first, then the previous hour as fallback."""
+    return [now.hour, (now.hour + 23) % 24]
 
 
 def _fetch_metar_cycle(now: datetime | None = None) -> str | None:
-    hour = _metar_cycle_hour(now)
-    url = METAR_CYCLE_URL.format(hour=hour)
-    data = _http_get(url)
-    if data and data.strip():
-        return data if data.endswith("\n") else data + "\n"
+    now = now or datetime.now(timezone.utc)
+    for hour in _metar_cycle_hours(now):
+        url = METAR_CYCLE_URL.format(hour=hour)
+        data = _http_get(url)
+        if data and data.strip():
+            return data if data.endswith("\n") else data + "\n"
     return None
 
 
@@ -87,10 +87,11 @@ def _fetch_metar_cache() -> str | None:
 
 def fetch_global_metars(now: datetime | None = None) -> str | None:
     """Download a global METAR dump in the layout X-Plane expects."""
-    data = _fetch_metar_cycle(now)
+    # Cache updates continuously with per-station observation times (freshest).
+    data = _fetch_metar_cache()
     if data:
         return data
-    return _fetch_metar_cache()
+    return _fetch_metar_cycle(now)
 
 
 def write_metar_file(filename: str, data: str, output_dir: str = XP_WEATHER_DIR) -> bool:
