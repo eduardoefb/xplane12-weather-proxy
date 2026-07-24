@@ -9,7 +9,12 @@ import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import BOTH, EW, LEFT, RIGHT, W, X
 from ttkbootstrap.dialogs import Messagebox
-from ttkbootstrap.scrolled import ScrolledText
+
+# ttkbootstrap 1.x: ttkbootstrap.scrolled; 2.x: ttkbootstrap.widgets.scrolled
+try:
+    from ttkbootstrap.scrolled import ScrolledText
+except ModuleNotFoundError:
+    from ttkbootstrap.widgets.scrolled import ScrolledText
 
 from config import WEATHER_PROXY_CERT_DIR
 from log_stream import install_log_capture
